@@ -3,7 +3,7 @@ name: Build docker images (scheduled)
 on:
   push:
     branches:
-      - test-pre-build-deepspeed
+      - test-pre-build-deepspeed-none
 
 concurrency:
   group: docker-images-builds
