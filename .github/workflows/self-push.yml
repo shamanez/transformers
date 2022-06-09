@@ -17,8 +17,6 @@ env:
 jobs:
   run_tests_torch_cuda_extensions_single_gpu:
     name: Torch CUDA extension tests
-    needs: setup
-    if: contains(fromJson(needs.setup.outputs.matrix), 'deepspeed') || contains(fromJson(needs.setup.outputs.matrix), 'extended')
     strategy:
       fail-fast: false
       matrix:
@@ -66,8 +64,6 @@ jobs:
 
   run_tests_torch_cuda_extensions_multi_gpu:
     name: Torch CUDA extension tests
-    needs: setup
-    if: contains(fromJson(needs.setup.outputs.matrix), 'deepspeed') || contains(fromJson(needs.setup.outputs.matrix), 'extended')
     strategy:
       fail-fast: false
       matrix:

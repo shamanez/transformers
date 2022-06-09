@@ -9,7 +9,7 @@ name: Self-hosted runner (scheduled)
 on:
   push:
     branches:
-      - test-pre-build-deepspeed
+      - test-pre-build-deepspeed-none
 
 env:
   HF_HOME: /mnt/cache
