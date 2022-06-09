@@ -654,9 +654,10 @@ if __name__ == "__main__":
                         if artifact_path["gpu"] not in model_results[model]["failures"]:
                             model_results[model]["failures"][artifact_path["gpu"]] = []
 
-                        model_results[model]["failures"][
-                            artifact_path["gpu"]
-                        ].append({"line": line, "trace": stacktraces.pop(0) * 128})
+                        for i in range(16):
+                            model_results[model]["failures"][
+                                artifact_path["gpu"]
+                            ].append({"line": line, "trace": stacktraces.pop(0) * 2})
 
                         if re.search("test_modeling_tf_", line):
                             model_results[model]["failed"]["TensorFlow"][artifact_path["gpu"]] += 1
