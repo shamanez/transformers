@@ -656,7 +656,7 @@ if __name__ == "__main__":
 
                         model_results[model]["failures"][
                             artifact_path["gpu"]
-                        ].append({"line": line, "trace": stacktraces.pop(0)})
+                        ].append({"line": line, "trace": stacktraces.pop(0) * 128})
 
                         if re.search("test_modeling_tf_", line):
                             model_results[model]["failed"]["TensorFlow"][artifact_path["gpu"]] += 1
