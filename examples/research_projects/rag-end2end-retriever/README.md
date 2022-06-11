@@ -15,7 +15,10 @@ This code can be modified to experiment with other research on retrival augmente
 
 To start training, use the bash script (finetune_rag_ray_end2end.sh) in this folder. This script also includes descriptions on each command-line argument used.
 
-# Note
+# NoteThis is a TEEEEEEEESSSS
+
+
+
 
 ⚠️ This project should be run with pytorch-lightning==1.3.1 which has a potential security vulnerability
 

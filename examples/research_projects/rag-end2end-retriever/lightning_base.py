@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pytorch_lightning as pl
-from pytorch_lightning.plugins.training_type import DDPPlugin
 from pytorch_lightning.utilities import rank_zero_info
 
 from transformers import (
@@ -30,6 +29,9 @@ from transformers.optimization import (
     get_polynomial_decay_schedule_with_warmup,
 )
 from transformers.utils.versions import require_version
+
+
+# from pytorch_lightning.plugins.training_type import DDPPlugin
 
 
 logger = logging.getLogger(__name__)
