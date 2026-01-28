@@ -361,6 +361,7 @@ if TYPE_CHECKING:
     from .speecht5 import *
     from .splinter import *
     from .squeezebert import *
+    from .ssn1 import *
     from .stablelm import *
     from .starcoder2 import *
     from .superglue import *
