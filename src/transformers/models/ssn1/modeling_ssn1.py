@@ -31,16 +31,20 @@ from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
-from transformers.modeling_utils import PreTrainedModel
+from transformers.modeling_utils import PreTrainedModel, ALL_ATTENTION_FUNCTIONS
+from transformers.utils.generic import maybe_autocast
 from transformers.utils import logging
 from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs
 
 from .configuration_ssn1 import SSN1Config
+from ...integrations import use_kernel_forward_from_hub, use_kernel_func_from_hub, use_kernelized_func
+
 
 
 logger = logging.get_logger(__name__)
 
+@use_kernel_forward_from_hub("RMSNorm")
 class SSN1RMSNorm(nn.Module):
     """
     RMSNorm with learnable weight parameter (used for final norm only).
@@ -107,7 +111,7 @@ class SSN1RotaryEmbedding(nn.Module):
         position_ids_expanded = position_ids[:, None, :].float()
 
         device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
-        with torch.autocast(device_type=device_type, enabled=False):
+        with maybe_autocast(device_type=device_type, enabled=False):  # Force float32
             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
             emb = torch.cat((freqs, freqs), dim=-1)
             cos = emb.cos() * self.attention_scaling
@@ -123,6 +127,7 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
+@use_kernel_func_from_hub("rotary_pos_emb")
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors."""
     cos = cos.unsqueeze(unsqueeze_dim)
@@ -185,6 +190,7 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
+@use_kernelized_func(apply_rotary_pos_emb)
 class SSN1Attention(nn.Module):
     """
     Multi-headed attention with QK normalization.
@@ -215,12 +221,12 @@ class SSN1Attention(nn.Module):
         )
 
         # QK normalization - key SSN1 feature
-        if config.use_qk_norm:
-            self.q_norm = SSN1RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-            self.k_norm = SSN1RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-        else:
-            self.q_norm = None
-            self.k_norm = None
+        # if config.use_qk_norm:
+        self.q_norm = SSN1RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.k_norm = SSN1RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        # else:
+        #     self.q_norm = None
+        #     self.k_norm = None
 
     def forward(
         self,
@@ -251,8 +257,11 @@ class SSN1Attention(nn.Module):
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        # Standard attention
-        attn_output, attn_weights = eager_attention_forward(
+        attention_interface: Callable = eager_attention_forward
+        if self.config._attn_implementation != "eager":
+            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+
+        attn_output, attn_weights = attention_interface(
             self,
             query_states,
             key_states,
@@ -290,52 +299,34 @@ class SSN1DecoderLayer(nn.Module):
         use_cache: bool | None = False,
         cache_position: torch.LongTensor | None = None,
         position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
-        **kwargs,
+        **kwargs: Unpack[TransformersKwargs],
     ) -> torch.Tensor:
-        
-        if self.config.norm_reorder:
-            # POST-NORM: norm(attention(x)) + x
-            residual = hidden_states
-            hidden_states, _ = self.self_attn(
-                hidden_states=hidden_states,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                past_key_values=past_key_values,
-                use_cache=use_cache,
-                cache_position=cache_position,
-                position_embeddings=position_embeddings,
-                **kwargs,
-            )
-            hidden_states = self.input_layernorm(hidden_states)
-            hidden_states = residual + hidden_states
+        residual = hidden_states
+        # hidden_states = self.input_layernorm(hidden_states)
+        # Self Attention
+        hidden_states, _ = self.self_attn(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            position_embeddings=position_embeddings,
+            **kwargs,
+        )
+        # newly added
+        hidden_states = self.input_layernorm(hidden_states)
 
-            # POST-NORM: norm(ffn(x)) + x
-            residual = hidden_states
-            hidden_states = self.mlp(hidden_states)
-            hidden_states = self.post_attention_layernorm(hidden_states)
-            hidden_states = residual + hidden_states
-        else:
-            # PRE-NORM (standard): attention(norm(x)) + x
-            residual = hidden_states
-            hidden_states = self.input_layernorm(hidden_states)
-            hidden_states, _ = self.self_attn(
-                hidden_states=hidden_states,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                past_key_values=past_key_values,
-                use_cache=use_cache,
-                cache_position=cache_position,
-                position_embeddings=position_embeddings,
-                **kwargs,
-            )
-            hidden_states = residual + hidden_states
+        hidden_states = residual + hidden_states
 
-            # PRE-NORM: ffn(norm(x)) + x
-            residual = hidden_states
-            hidden_states = self.post_attention_layernorm(hidden_states)
-            hidden_states = self.mlp(hidden_states)
-            hidden_states = residual + hidden_states
-        
+        # Fully Connected
+        residual = hidden_states
+        # hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        # newly added
+        hidden_states = self.post_attention_layernorm(hidden_states)  # Norm AFTER FFN
+
+        hidden_states = residual + hidden_states
         return hidden_states
 
 
