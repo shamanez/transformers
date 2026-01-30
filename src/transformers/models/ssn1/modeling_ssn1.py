@@ -40,7 +40,6 @@ from .configuration_ssn1 import SSN1Config
 
 logger = logging.get_logger(__name__)
 
-
 class SSN1RMSNorm(nn.Module):
     """
     RMSNorm with learnable weight parameter (used for final norm only).
@@ -59,29 +58,6 @@ class SSN1RMSNorm(nn.Module):
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
-
-
-class SSN1UnweightedRMSNorm(nn.Module):
-    """
-    RMSNorm without learnable weight parameter (used for layer norms and QK norms).
-    This is a key architectural feature of SSN1.
-    """
-    def __init__(self, hidden_size, eps=1e-6):
-        super().__init__()
-        self.variance_epsilon = eps
-
-    def forward(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return hidden_states.to(input_dtype)
-
-    def extra_repr(self):
-        return f"eps={self.variance_epsilon}"
-    
-    def reset_parameters(self):
-        pass  # No parameters to reset
 
 
 class SSN1RotaryEmbedding(nn.Module):
@@ -239,8 +215,8 @@ class SSN1Attention(nn.Module):
 
         # QK normalization - key SSN1 feature
         if config.use_qk_norm:
-            self.q_norm = SSN1UnweightedRMSNorm(self.head_dim, eps=config.rms_norm_eps)
-            self.k_norm = SSN1UnweightedRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+            self.q_norm = SSN1RMSNorm(self.head_dim, eps=config.rms_norm_eps)
+            self.k_norm = SSN1RMSNorm(self.head_dim, eps=config.rms_norm_eps)
         else:
             self.q_norm = None
             self.k_norm = None
@@ -301,8 +277,8 @@ class SSN1DecoderLayer(nn.Module):
         self.mlp = SSN1MLP(config)
         
         # Use unweighted norms for layer norms (key SSN1 feature)
-        self.input_layernorm = SSN1UnweightedRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = SSN1UnweightedRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.input_layernorm = SSN1RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = SSN1RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,
